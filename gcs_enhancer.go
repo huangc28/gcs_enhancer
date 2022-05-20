@@ -119,7 +119,7 @@ func (e *GCSEnhancer) UploadImages(ctx context.Context, imgs []Images) (SortedLi
 	for _, img := range imgs {
 		// Upload both orginal / thumbnail images.
 		origName := AppendUnixTimeStampToFilename(filepath.Base(img.Name))
-		thumbnailName := appendUnixTimeStampToFilename(appendThumbnailStamp(filepath.Base(img.Name)))
+		thumbnailName := AppendUnixTimeStampToFilename(appendThumbnailStamp(filepath.Base(img.Name)))
 
 		origBuf := new(bytes.Buffer)
 		thumbBuf := new(bytes.Buffer)
