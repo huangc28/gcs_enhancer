@@ -23,7 +23,6 @@ import (
 const GCSPublicHost = "storage.googleapis.com"
 
 type GCSEnhancerInterface interface {
-	ObjectLink(attr *storage.ObjectAttrs) string
 	Upload(ctx context.Context, file io.Reader, uploadFilename string) (string, error)
 }
 
@@ -39,14 +38,22 @@ func NewGCSEnhancer(client *storage.Client, bucketName string) *GCSEnhancer {
 	}
 }
 
-func (e *GCSEnhancer) ObjectLink(attr *storage.ObjectAttrs) string {
+type UploadedFileInfo struct {
+	Filename   string
+	PublicLink string
+}
+
+func ObjectLink(attr *storage.ObjectAttrs) *UploadedFileInfo {
 	u := url.URL{
 		Scheme: "https",
 		Host:   GCSPublicHost,
 		Path:   fmt.Sprintf("%s/%s", attr.Bucket, attr.Name),
 	}
 
-	return u.String()
+	return &UploadedFileInfo{
+		Filename:   attr.Name,
+		PublicLink: u.String(),
+	}
 }
 
 func (e *GCSEnhancer) NewObjectWriter(ctx context.Context, filename string) *storage.Writer {
@@ -56,36 +63,42 @@ func (e *GCSEnhancer) NewObjectWriter(ctx context.Context, filename string) *sto
 	return object.NewWriter(ctx)
 }
 
-func (e *GCSEnhancer) Upload(ctx context.Context, file io.Reader, uploadFilename string) (string, error) {
+type UploadOptions struct {
+	PublicAccess bool
+}
+
+func (e *GCSEnhancer) Upload(ctx context.Context, file io.Reader, uploadFilename string, opts UploadOptions) (*UploadedFileInfo, error) {
 	bucket := e.client.Bucket(e.bucketName)
 	object := bucket.Object(uploadFilename)
 	objwriter := object.NewWriter(ctx)
 
 	if _, err := io.Copy(objwriter, file); err != nil {
-		return "", err
+		return nil, err
 	}
 
 	if err := objwriter.Close(); err != nil {
-		return "", err
+		return nil, err
 	}
 
 	// ------------------- make the object publicly accessible -------------------
-	if err := object.ACL().Set(ctx,
-		storage.AllUsers,
-		storage.RoleReader); err != nil {
+	if opts.PublicAccess {
+		if err := object.ACL().Set(ctx,
+			storage.AllUsers,
+			storage.RoleReader); err != nil {
 
-		return "", err
+			return nil, err
+		}
 	}
 
 	// ------------------- retrieve object attributes -------------------
 	attr, err := object.Attrs(ctx)
 
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	// ------------------- combine object link -------------------
-	return e.ObjectLink(attr), nil
+	return ObjectLink(attr), nil
 }
 
 func AppendUnixTimeStampToFilename(filename string) string {
@@ -257,6 +270,7 @@ L:
 					ctx,
 					obj.Reader,
 					obj.Name,
+					UploadOptions{},
 				)
 
 				if err != nil {
@@ -269,7 +283,7 @@ L:
 				errChan <- nil
 				linkChan <- LinkInfo{
 					Size: obj.Size,
-					Link: objectLink,
+					Link: objectLink.PublicLink,
 				}
 
 			}(obj)
